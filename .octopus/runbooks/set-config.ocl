@@ -1,0 +1,117 @@
+name = "Set config"
+cancel_queued_tasks = true
+cancel_running_tasks = true
+default_guided_failure_mode = "EnvironmentDefault"
+description = ""
+
+connectivity_policy {
+    allow_deployments_to_no_targets = true
+}
+
+run_retention_policy {
+    type = "Default"
+}
+
+process {
+    step "run-an-azure-script" {
+        name = "Run an Azure Script"
+
+        action {
+            action_type = "Octopus.AzurePowerShell"
+            properties = {
+                Octopus.Action.Azure.AccountId = "demo-octopus-app"
+                Octopus.Action.Script.ScriptBody = <<-EOT
+                    APPCONFIG_NAME="demo-octopus-app"
+                    LABEL=$(get_octopusvariable "Octopus.Environment.Slug")
+                    
+                    # ===== Plain values =====
+                    az appconfig kv set --name $APPCONFIG_NAME --yes \
+                      --label $LABEL \
+                      --key "weather-agent:openai:model" \
+                      --value "gpt-4o-mini"
+                    
+                    az appconfig kv set --name $APPCONFIG_NAME --yes \
+                      --label $LABEL \
+                      --key "weather-agent:log-level" \
+                      --value "INFO"
+                    
+                    az appconfig kv set --name $APPCONFIG_NAME --yes \
+                      --label $LABEL \
+                      --key "weather-agent:cache:backend" \
+                      --value "redis"
+                    
+                    az appconfig kv set --name $APPCONFIG_NAME --yes \
+                      --label $LABEL \
+                      --key "weather-agent:cache:redis-url" \
+                      --value "redis://redis.weather-agent.svc.cluster.local:6379/0"
+                    
+                    az appconfig kv set --name $APPCONFIG_NAME --yes \
+                      --label $LABEL \
+                      --key "weather-agent:cache:ttl:geocoding" \
+                      --value "86400"
+                    
+                    az appconfig kv set --name $APPCONFIG_NAME --yes \
+                      --label $LABEL \
+                      --key "weather-agent:cache:ttl:current-weather" \
+                      --value "600"
+                    
+                    az appconfig kv set --name $APPCONFIG_NAME --yes \
+                      --label $LABEL \
+                      --key "weather-agent:cache:ttl:forecast" \
+                      --value "1800"
+                    
+                    az appconfig kv set --name $APPCONFIG_NAME --yes \
+                      --label $LABEL \
+                      --key "weather-agent:cache:ttl:agent-response" \
+                      --value "300"
+                    
+                    # ===== Key Vault references =====
+                    # These are stored as a special JSON content-type that the provider resolves
+                    KEY_VAULT_NAME="demo-octopus-app"
+                    SECRET_URI=$(az keyvault secret show \
+                      --vault-name $KEY_VAULT_NAME \
+                      --name openai-api-key \
+                      --query id -o tsv)
+                    
+                    az appconfig kv set-keyvault --name $APPCONFIG_NAME --yes \
+                      --label $LABEL \
+                      --key "weather-agent:openai:api-key" \
+                      --secret-identifier "$SECRET_URI"
+                    
+                    # ===== Feature flags =====
+                    az appconfig feature set --name $APPCONFIG_NAME --yes \
+                      --label $LABEL \
+                      --feature "weather-agent-response-cache"
+                    
+                    # ===== Feature flags =====
+                    az appconfig feature enable --name $APPCONFIG_NAME --yes \
+                      --label $LABEL \
+                      --feature "weather-agent-response-cache"
+                    
+                    az appconfig feature set --name $APPCONFIG_NAME --yes \
+                      --label $LABEL \
+                      --feature "weather-agent-tool-cache"
+                    
+                    az appconfig feature enable --name $APPCONFIG_NAME --yes \
+                      --label $LABEL \
+                      --feature "weather-agent-tool-cache"
+                    
+                    az appconfig feature set --name $APPCONFIG_NAME --yes \
+                      --label $LABEL \
+                      --feature "weather-agent-streaming"
+                    # Leave disabled for now
+                    
+                    # ===== Sentinel key (triggers refresh when changed) =====
+                    az appconfig kv set --name $APPCONFIG_NAME --yes \
+                      --label $LABEL \
+                      --key "weather-agent:sentinel" \
+                      --value "v1"
+                    EOT
+                Octopus.Action.Script.ScriptSource = "Inline"
+                Octopus.Action.Script.Syntax = "Bash"
+                OctopusUseBundledTooling = "False"
+            }
+            worker_pool = "hosted-ubuntu"
+        }
+    }
+}

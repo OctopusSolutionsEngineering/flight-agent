@@ -1,0 +1,181 @@
+name = "Delete namespace"
+cancel_queued_tasks = true
+cancel_running_tasks = true
+default_guided_failure_mode = "EnvironmentDefault"
+description = ""
+
+connectivity_policy {
+    allow_deployments_to_no_targets = true
+}
+
+run_retention_policy {
+    type = "Default"
+}
+
+process {
+    step "run-a-process-template-verify-configuration" {
+        name = "Run a Process Template-Verify configuration"
+
+        action {
+            action_type = "Octopus.Script"
+            is_required = true
+            notes = "This step verifies the configuration parameters for the template."
+            properties = {
+                Octopus.Action.Blueprint.ConsumingAction.Name = "Run a Process Template"
+                Octopus.Action.Script.ScriptBody = <<-EOT
+                    function Check-Parameter
+                    {
+                      param(
+                        $value
+                      )
+                    
+                      if ([string]::IsNullOrWhiteSpace($value)) {
+                        Write-Verbose "Value is null or whitespace"
+                        return $true
+                      }
+                    
+                      $results = $value | Select-String -Pattern "#\{([^}]*)\}" -AllMatches
+                      $hasMatches = $results -gt 0
+                    
+                      if ($hasMatches) {
+                        Write-Verbose "Value contains an unresolved variable"
+                      }
+                    
+                      return $hasMatches
+                    }
+                    
+                    if (Check-Parameter $OctopusParameters["Template.Tag"]) {
+                      Fail-Step "'Target Tag' is required."
+                    }
+                    
+                    if (Check-Parameter $OctopusParameters["Template.Cluster.Namespace"]) {
+                      Fail-Step "'Cluster Namespace' is required."
+                    }
+                    
+                    if (Check-Parameter $OctopusParameters["Template.Environments.RequireApproval"]) {
+                      Fail-Step "'Require approval in these environments' is required."
+                    }
+                    
+                    if (Check-Parameter $OctopusParameters["Template.Teams.Approvers"]) {
+                      Fail-Step "'Require approval in these environments' is required."
+                    }
+                    
+                    if (Check-Parameter $OctopusParameters["Template.Worker.Pool"]) {
+                      Fail-Step "'Worker Pool' is required."
+                    }
+                    EOT
+                Octopus.Action.Script.ScriptSource = "Inline"
+                Octopus.Action.Script.Syntax = "PowerShell"
+                Octopus.ProcessTemplate.Slug = "kubernetes-delete-namespace"
+                Octopus.ProcessTemplate.Version = "1.0.0"
+                OctopusUseBundledTooling = "False"
+                Template.Cluster.Namespace = "#{Octopus.Project.Slug}-#{Octopus.Environment.Slug}"
+                Template.Environments.RequireApproval = "Environments-85"
+                Template.Tag = "demo-k8s-cluster"
+                Template.Teams.Approvers = "teams-managers"
+                Template.Worker.Pool = "WorkerPools-24"
+            }
+            worker_pool_variable = "#{Template.Worker.Pool}"
+        }
+    }
+
+    step "run-a-process-template-find-namespace" {
+        name = "Run a Process Template-Find namespace"
+        properties = {
+            Octopus.Action.TargetRoles = "#{Template.Tag}"
+        }
+
+        action {
+            action_type = "Octopus.KubernetesRunScript"
+            is_required = true
+            notes = "This step checks to see if the namespace exists."
+            properties = {
+                Octopus.Action.Blueprint.ConsumingAction.Name = "Run a Process Template"
+                Octopus.Action.Script.ScriptBody = <<-EOT
+                    $namespace = $OctopusParameters["Template.Cluster.Namespace"]
+                    $namespaces = kubectl get namespaces -o json | ConvertFrom-Json
+                    
+                    $namespaceExists = $namespaces.items | Where-Object { $_.metadata.name -eq $namespace }
+                    Set-OctopusVariable -name "NamespaceExists" -value $namespaceExists
+                    
+                    if ($namespaceExists) {
+                        Write-Host "Namespace '$namespace' exists."
+                    } else {
+                        Write-Host "Namespace '$namespace' does not exist."
+                    }
+                    EOT
+                Octopus.Action.Script.ScriptSource = "Inline"
+                Octopus.Action.Script.Syntax = "PowerShell"
+                Octopus.ProcessTemplate.Slug = "kubernetes-delete-namespace"
+                Octopus.ProcessTemplate.Version = "1.0.0"
+                Template.Cluster.Namespace = "#{Octopus.Project.Slug}-#{Octopus.Environment.Slug}"
+                Template.Environments.RequireApproval = "Environments-85"
+                Template.Tag = "demo-k8s-cluster"
+                Template.Teams.Approvers = "teams-managers"
+                Template.Worker.Pool = "WorkerPools-24"
+            }
+            worker_pool_variable = ""
+        }
+    }
+
+    step "run-a-process-template-approve-deletion" {
+        condition = "Variable"
+        name = "Run a Process Template-Approve deletion"
+        properties = {
+            Octopus.Step.ConditionVariableExpression = "#{unless Octopus.Deployment.Error}#{Octopus.ProcessTemplate.Action[Find namespace].Output.NamespaceExists}#{/unless}"
+        }
+
+        action {
+            action_type = "Octopus.Manual"
+            environments_variable = "#{Template.Environments.RequireApproval}"
+            is_required = true
+            notes = "This step requires manual intervention to approve the deletion of the namespace."
+            properties = {
+                Octopus.Action.Blueprint.ConsumingAction.Name = "Run a Process Template"
+                Octopus.Action.Manual.BlockConcurrentDeployments = "True"
+                Octopus.Action.Manual.Instructions = "Approve the deletion of the namespace '#{Template.Cluster.Namespace}' in the clusters included in this task."
+                Octopus.Action.Manual.ResponsibleTeamIds = "#{Template.Teams.Approvers}"
+                Octopus.ProcessTemplate.Slug = "kubernetes-delete-namespace"
+                Octopus.ProcessTemplate.Version = "1.0.0"
+                Template.Cluster.Namespace = "#{Octopus.Project.Slug}-#{Octopus.Environment.Slug}"
+                Template.Environments.RequireApproval = "Environments-85"
+                Template.Tag = "demo-k8s-cluster"
+                Template.Teams.Approvers = "teams-managers"
+                Template.Worker.Pool = "WorkerPools-24"
+            }
+        }
+    }
+
+    step "run-a-process-template-delete-namespace" {
+        condition = "Variable"
+        name = "Run a Process Template-Delete namespace"
+        properties = {
+            Octopus.Action.TargetRoles = "#{Template.Tag}"
+            Octopus.Step.ConditionVariableExpression = "#{unless Octopus.Deployment.Error}#{Octopus.ProcessTemplate.Action[Find namespace].Output.NamespaceExists}#{/unless}"
+        }
+
+        action {
+            action_type = "Octopus.KubernetesRunScript"
+            is_required = true
+            notes = "This step deletes the namespace."
+            properties = {
+                Octopus.Action.Blueprint.ConsumingAction.Name = "Run a Process Template"
+                Octopus.Action.Script.ScriptBody = <<-EOT
+                    $namespace = $OctopusParameters["Template.Cluster.Namespace"]
+                    
+                    kubectl delete namespace $namespace
+                    EOT
+                Octopus.Action.Script.ScriptSource = "Inline"
+                Octopus.Action.Script.Syntax = "PowerShell"
+                Octopus.ProcessTemplate.Slug = "kubernetes-delete-namespace"
+                Octopus.ProcessTemplate.Version = "1.0.0"
+                Template.Cluster.Namespace = "#{Octopus.Project.Slug}-#{Octopus.Environment.Slug}"
+                Template.Environments.RequireApproval = "Environments-85"
+                Template.Tag = "demo-k8s-cluster"
+                Template.Teams.Approvers = "teams-managers"
+                Template.Worker.Pool = "WorkerPools-24"
+            }
+            worker_pool_variable = ""
+        }
+    }
+}

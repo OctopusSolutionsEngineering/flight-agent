@@ -1,0 +1,114 @@
+name = "Test agent"
+cancel_queued_tasks = true
+cancel_running_tasks = true
+default_guided_failure_mode = "EnvironmentDefault"
+description = ""
+environment_scope = "FromProjectLifecycles"
+
+connectivity_policy {
+    allow_deployments_to_no_targets = true
+}
+
+run_retention_policy {
+    quantity_to_keep = 10
+    type = "Count"
+}
+
+process {
+    step "test-agent" {
+        name = "Test agent"
+        properties = {
+            Octopus.Action.TargetRoles = "demo-k8s-cluster"
+        }
+
+        action {
+            action_type = "Octopus.Script"
+            properties = {
+                Octopus.Action.RunOnServer = "false"
+                Octopus.Action.Script.ScriptBody = <<-EOT
+                    # Simple client for the Weather Agent API
+                    
+                    set -euo pipefail
+                    
+                    PROJECT=$(get_octopusvariable "Octopus.Project.Slug")
+                    ENVIRONMENT=$(get_octopusvariable "Octopus.Environment.Slug")
+                    
+                    BASE_URL="http://$PROJECT.$PROJECT-$ENVIRONMENT.svc.cluster.local:8000"
+                    QUERY=$(get_octopusvariable "Runbook.TestAgent.Prompt")
+                    
+                    response=$(curl -sS -X GET "$BASE_URL/ready" --max-time 120)
+                    
+                    echo ""
+                    echo "$response"
+                    echo ""
+                    
+                    echo "🌤️  You: $QUERY"
+                    
+                    response=$(curl -sS -X POST "$BASE_URL/ask" -H "Content-Type: application/json" -d "{\"query\": \"$QUERY\"}" --max-time 120)
+                    
+                    answer=$(echo "$response" | jq -r '.answer')
+                    latency=$(echo "$response" | jq -r '.latency_ms')
+                    
+                    echo ""
+                    echo "🤖 Agent: $answer"
+                    echo "⏱️  Latency: ${latency} ms"
+                    echo ""
+                    EOT
+                Octopus.Action.Script.ScriptSource = "Inline"
+                Octopus.Action.Script.Syntax = "Bash"
+                OctopusUseBundledTooling = "False"
+            }
+        }
+    }
+
+    step "run-a-kubectl-script" {
+        name = "Run a kubectl script"
+        properties = {
+            Octopus.Action.TargetRoles = "demo-k8s-cluster"
+        }
+
+        action {
+            action_type = "Octopus.KubernetesRunScript"
+            is_disabled = true
+            properties = {
+                Octopus.Action.Script.ScriptBody = <<-EOT
+                    #!/usr/bin/env bash
+                    # Simple client for the Weather Agent API
+                    
+                    set -euo pipefail
+                    
+                    project=$(get_octopusvariable "Octopus.Project.Slug")
+                    environment=$(get_octopusvariable "Octopus.Environment.Slug")
+                    
+                    BASE_URL="${WEATHER_AGENT_URL:-http://$project.$project-$environment.svc.cluster.local:8000}"
+                    QUERY="${*:-What's the weather in Tokyo?}"
+                    
+                    echo "🌤️  You: $QUERY"
+                    
+                    response=$(curl -sS -X POST "$BASE_URL/ask" \
+                        -H "Content-Type: application/json" \
+                        -d "$(jq -n --arg q "$QUERY" '{query: $q}')" \
+                        --max-time 60)
+                    
+                    answer=$(echo "$response" | jq -r '.answer')
+                    latency=$(echo "$response" | jq -r '.latency_ms')
+                    
+                    echo ""
+                    echo "🤖 Agent: $answer"
+                    echo "⏱️  Latency: ${latency} ms"
+                    echo ""
+                    EOT
+                Octopus.Action.Script.ScriptSource = "Inline"
+                Octopus.Action.Script.Syntax = "Bash"
+                OctopusUseBundledTooling = "False"
+            }
+            worker_pool = "hosted-windows"
+            worker_pool_variable = ""
+
+            container {
+                feed = "docker-hub"
+                image = "octopusdeploy/worker-tools:6.5.0-ubuntu.22.04"
+            }
+        }
+    }
+}
