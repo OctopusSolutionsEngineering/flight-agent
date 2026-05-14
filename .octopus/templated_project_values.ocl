@@ -1,11 +1,11 @@
 package_parameter "ProjectTemplate.Agent.Container" {
     feed = "docker-hub"
-    package_id = "octopussolutionsengineering/flight-agent"
+    package_id = "octopussolutionsengineering/weather-agent"
 }
 
 package_parameter "ProjectTemplate.SBOM" {
     feed = "octopus-server-built-in"
-    package_id = "flight-agent.sbom"
+    package_id = "weather-agent.sbom"
 }
 
 parameter "ProjectTemplate.Docker.Account" {
