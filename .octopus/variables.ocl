@@ -41,16 +41,16 @@ variable "config:cache:ttl:agent-response" {
 }
 
 variable "config:cache:redis-url" {
-    value "redis://redis.flight-agent.flight-agent-production.svc.cluster.local:6379/0" {
+    value "redis://redis.flight-agent-production.svc.cluster.local:6379/0" {
         environment = ["production"]
     }
 
-    value "redis://redis.flight-agent.flight-agent-qa.svc.cluster.local:6379/0" {
+    value "redis://redis.flight-agent-qa.svc.cluster.local:6379/0" {
         description = ""
         environment = ["qa"]
     }
 
-    value "redis://redis.flight-agent.flight-agent-development.svc.cluster.local:6379/0" {
+    value "redis://redis.flight-agent-development.svc.cluster.local:6379/0" {
         description = ""
         environment = ["development"]
     }
