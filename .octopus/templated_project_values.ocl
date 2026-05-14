@@ -1,0 +1,33 @@
+package_parameter "ProjectTemplate.Agent.Container" {
+    feed = "docker-hub"
+    package_id = "octopussolutionsengineering/flight-agent"
+}
+
+package_parameter "ProjectTemplate.SBOM" {
+    feed = "octopus-server-built-in"
+    package_id = "flight-agent.sbom"
+}
+
+parameter "ProjectTemplate.Docker.Account" {
+    value = "Shared.Docker.Account"
+}
+
+parameter "ProjectTemplate.TargetTags" {
+    value = "demo-k8s-cluster"
+}
+
+parameter "ProjectTemplate.Git.AuthToken" {
+    value = "#{Shared.GitHub.Token}"
+}
+
+parameter "ProjectTemplate.Worker.Pool" {
+    value = "WorkerPools-24"
+}
+
+parameter "ProjectTemplate.ExecutionContainer.Feed" {
+    value = "Feeds-1028"
+}
+
+parameter "ProjectTemplate.ServiceAccount.ClientId" {
+    value = "77c7778c-c56d-48da-b022-a95d2fcc2143"
+}
