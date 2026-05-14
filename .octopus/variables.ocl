@@ -59,3 +59,7 @@ variable "config:cache:redis-url" {
 variable "config:cache:backend" {
     value "redis" {}
 }
+
+variable "secret:openai:key" {
+    value "https://demo-octopus-app.vault.azure.net/secrets/openai-api-key/85baeee9fbab4009875e44af89bd76a1" {}
+}
