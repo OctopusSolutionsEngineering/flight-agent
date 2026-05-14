@@ -12,8 +12,8 @@ env:
     OCTOPUS_URL: https://wrg.octopus.app
     OCTOPUS_SERVICE_ACCOUNT: b45a10cc-1380-480d-ab25-28e36d54cd63
     OCTOPUS_SPACE: "New Cascadia Imports"
-    DOCKER_HUB_REPOSITORY: octopussolutionsengineering/flight-agent
-    SBOM_PACKAGE: flight-agent.sbom
+    DOCKER_HUB_REPOSITORY: octopussolutionsengineering/weather-agent
+    SBOM_PACKAGE: weather-agent.sbom
 
 jobs:
     configure:
