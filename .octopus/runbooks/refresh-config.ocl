@@ -1,23 +1,21 @@
-name = "Test agent"
+name = "Refresh config"
 cancel_queued_tasks = true
 cancel_running_tasks = true
 default_guided_failure_mode = "EnvironmentDefault"
 description = ""
-environment_scope = "FromProjectLifecycles"
 
 connectivity_policy {
     allow_deployments_to_no_targets = true
 }
 
 run_retention_policy {
-    quantity_to_keep = 10
-    type = "Count"
+    type = "Default"
 }
 
 process {
     process_template "run-a-process-template" {
         name = "Run a Process Template"
-        process_template_slug = "runbook-test-agent"
+        process_template_slug = "runbook-refresh-config"
         version_mask = "1.X"
 
         parameter "ProcessTemplate.Target.Tags" {
