@@ -1,0 +1,19 @@
+langchain==0.3.7
+langchain-openai==0.2.8
+langchain-community==0.3.7
+fastapi==0.115.5
+uvicorn[standard]==0.32.1
+pydantic==2.9.2
+pydantic-settings==2.6.1
+python-dotenv==1.0.1
+requests==2.32.3
+
+# Azure
+azure-identity==1.19.0
+azure-keyvault-secrets==4.9.0
+azure-appconfiguration==1.7.1
+azure-appconfiguration-provider==2.0.0
+
+# Caching
+redis==5.2.0
+cachetools==5.5.0

@@ -1,0 +1,131 @@
+# ===== Secrets & Environment =====
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+secrets/
+
+# ===== Python =====
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+*.egg
+*.egg-info/
+dist/
+build/
+develop-eggs/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+share/python-wheels/
+MANIFEST
+pip-log.txt
+pip-delete-this-directory.txt
+
+# ===== Virtual Environments =====
+venv/
+env/
+ENV/
+.venv/
+.env/
+virtualenv/
+
+# ===== Testing & Coverage =====
+.pytest_cache/
+.coverage
+.coverage.*
+htmlcov/
+.tox/
+.nox/
+coverage.xml
+*.cover
+*.py,cover
+.hypothesis/
+nosetests.xml
+
+# ===== Type Checking & Linting =====
+.mypy_cache/
+.dmypy.json
+dmypy.json
+.pyre/
+.pytype/
+.ruff_cache/
+
+# ===== IDE & Editors =====
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.project
+.pydevproject
+.settings/
+*.sublime-project
+*.sublime-workspace
+.DS_Store
+Thumbs.db
+
+# ===== Jupyter =====
+.ipynb_checkpoints
+*.ipynb
+
+# ===== Logs =====
+*.log
+logs/
+log/
+
+# ===== Docker =====
+# Don't ignore Dockerfile or docker-compose.yml
+.docker/
+docker-compose.override.yml
+
+# ===== AI / LangChain Specific =====
+# Local vector stores (if added later)
+chroma_db/
+faiss_index/
+*.faiss
+*.pkl
+
+# LangChain cache
+.langchain.db
+.langchain_cache/
+
+# LangSmith local traces (if used)
+.langsmith/
+
+# Model files (if downloaded locally)
+*.bin
+*.gguf
+*.safetensors
+models/
+
+# ===== Local Data =====
+data/
+*.csv
+*.sqlite
+*.db
+
+# ===== OS Files =====
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+desktop.ini
+
+# ===== Misc =====
+*.bak
+*.tmp
+*.temp
+.cache/
+node_modules/

@@ -1,0 +1,285 @@
+name: Build and Push Docker Image - SLSA
+
+on:
+    push:
+        #  paths:
+        #    - "API/**"
+        branches:
+            - main
+    workflow_dispatch: {}
+
+env:
+    OCTOPUS_URL: https://wrg.octopus.app
+    OCTOPUS_SERVICE_ACCOUNT: b45a10cc-1380-480d-ab25-28e36d54cd63
+    OCTOPUS_SPACE: "New Cascadia Imports"
+    DOCKER_HUB_REPOSITORY: octopussolutionsengineering/flight-agent
+    SBOM_PACKAGE: flight-agent.sbom
+
+jobs:
+    configure:
+        runs-on: ubuntu-latest
+        name: Configure Workflow
+        outputs:
+            version: ${{ steps.version-generator.outputs.version }}
+        steps:
+            - name: Set version number
+              id: version-generator
+              run: echo "version=$(date +'%y.%m.%d%H%M%S')" >> $GITHUB_OUTPUT
+
+    scan:
+        runs-on: ubuntu-latest
+        name: Scan Code
+        permissions:
+            security-events: write
+
+        steps:
+            - name: Checkout code
+              uses: actions/checkout@v4
+
+            - name: Run Trivy vulnerability scanner on repo
+              uses: aquasecurity/trivy-action@v0.36.0
+              with:
+                  scan-type: "fs"
+                  ignore-unfixed: true
+                  exit-code: "0"
+                  format: "sarif"
+                  output: "trivy-results.sarif"
+                  severity: "MEDIUM,HIGH,CRITICAL"
+
+            - name: Upload Trivy scan results to GitHub Security tab
+              uses: github/codeql-action/upload-sarif@v3
+              with:
+                  sarif_file: "trivy-results.sarif"
+
+    create-gh-release:
+        name: Create GitHub Release
+        needs: [configure, scan]
+        runs-on: ubuntu-latest
+        permissions:
+            id-token: write
+            contents: write
+        steps:
+            - name: Checkout code to build website
+              uses: actions/checkout@v1
+
+            - name: Create Release for GitHub
+              id: create_release
+              uses: ncipollo/release-action@v1
+              if: github.ref == 'refs/heads/main'
+              env:
+                  GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }} # This token is provided by Actions, you do not need to create your own token
+              with:
+                  tag: "${{ needs.configure.outputs.version }}"
+                  name: Release ${{ needs.configure.outputs.version }}
+                  body: |
+                      Automatic Release creation by GitHub Action
+                      Commit Message: ${{ github.event.head_commit.message }}
+                  draft: false
+
+    build:
+        name: Build and Scan Images
+        needs: [configure, scan, create-gh-release]
+        runs-on: ubuntu-latest
+        permissions:
+            id-token: write
+            contents: read
+        outputs:
+            app_hash: ${{ steps.push-docker-images.outputs.DEMO_APP_DOCKER_SHA }}
+
+        steps:
+            - name: Checkout code
+              uses: actions/checkout@v2
+
+            - name: Set up Docker Buildx
+              uses: docker/setup-buildx-action@v1
+
+            - name: Login to Octopus Deploy
+              uses: OctopusDeploy/login@v1
+              with:
+                  server: ${{ env.OCTOPUS_URL }}
+                  service_account_id: ${{ env.OCTOPUS_SERVICE_ACCOUNT }}
+
+            - name: Login to Docker Hub
+              uses: docker/login-action@v1
+              with:
+                  username: ${{ secrets.DOCKER_USERNAME }}
+                  password: ${{ secrets.DOCKER_PASSWORD }}
+
+            - name: Build API container
+              id: build_container
+              working-directory: ./
+              run: |
+                  docker build -f "Dockerfile" \
+                    --tag $DOCKER_HUB_REPOSITORY:${{ needs.configure.outputs.version }} .
+
+            - name: Run Trivy vulnerability scanner on docker container
+              uses: aquasecurity/trivy-action@v0.36.0
+              with:
+                  image-ref: ${{ env.DOCKER_HUB_REPOSITORY }}:${{ needs.configure.outputs.version }}
+                  format: "table"
+                  exit-code: "0"
+                  ignore-unfixed: true
+                  vuln-type: "os,library"
+                  severity: "CRITICAL"
+
+            - name: Push Docker images
+              id: push-docker-images
+              working-directory: ./
+              run: |
+                  docker push $DOCKER_HUB_REPOSITORY:${{ needs.configure.outputs.version }}
+
+                  dockerSha=$(docker manifest inspect $DOCKER_HUB_REPOSITORY:${{ needs.configure.outputs.version }} -v | jq -r '.Descriptor.digest')
+                  echo "Docker sha is $dockerSha"            
+                  echo "DEMO_APP_DOCKER_SHA=$dockerSha" >> $GITHUB_OUTPUT
+
+            - uses: OctopusDeploy/push-build-information-action@v3
+              name: Push build information 🐙
+              with:
+                  version: ${{ needs.configure.outputs.version }}
+                  packages: |
+                      ${{ env.DOCKER_HUB_REPOSITORY }}
+
+    sbom:
+        name: Generate and Publish SBOM
+        outputs:
+            sbom_hash: ${{ steps.determine_sbom_hash.outputs.SBOM_HASH }}
+        needs: [configure, scan, create-gh-release]
+        runs-on: ubuntu-latest
+        permissions:
+            # Add any additional permissions your job requires here
+            id-token: write # This is required to obtain the OIDC Token for Octopus Deploy
+        steps:
+            - name: Checkout the code for SBOM
+              uses: actions/checkout@v1
+              with:
+                  fetch-depth: "0"
+
+            - name: Run Trivy in GitHub SBOM mode and submit results to Dependency Graph
+              uses: aquasecurity/trivy-action@v0.36.0
+              with:
+                  scan-type: "fs"
+                  format: "github"
+                  output: "dependency-results.sbom.json"
+                  scan-ref: "."
+                  github-pat: ${{ secrets.GITHUB_TOKEN }}
+
+            - name: Package SBOM
+              id: "sbom_package"
+              uses: OctopusDeploy/create-zip-package-action@v3
+              with:
+                  package_id: "${{ env.SBOM_PACKAGE }}"
+                  version: "${{ needs.configure.outputs.version }}"
+                  base_path: "./"
+                  files: "dependency-results.sbom.json"
+                  output_folder: packaged
+
+            - name: Create the Subject Checksum file for Attestation Build Provenance
+              id: determine_sbom_hash
+              shell: pwsh
+              run: |
+                  $packageHash = Get-FileHash -path "packaged/${{ env.SBOM_PACKAGE }}.${{ needs.configure.outputs.version }}.zip" -Algorithm SHA256
+                  $hashToSave = $packageHash.Hash 
+                  Write-Host "The SBOM package hash is $hashToSave"
+
+                  "SBOM_HASH=$hashToSave" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+
+            - name: Login to Octopus Deploy 🐙
+              uses: OctopusDeploy/login@v1
+              with:
+                  server: ${{ env.OCTOPUS_URL }}
+                  service_account_id: ${{ env.OCTOPUS_SERVICE_ACCOUNT }}
+
+            - name: Push build information to Octopus 🐙
+              uses: OctopusDeploy/push-build-information-action@v3
+              with:
+                  packages: |
+                      ${{ env.SBOM_PACKAGE }}
+                  version: "${{ needs.configure.outputs.version }}"
+
+            - name: Push packages to Octopus 🐙
+              uses: OctopusDeploy/push-package-action@v3
+              with:
+                  packages: |
+                      packaged/${{ env.SBOM_PACKAGE }}.${{ needs.configure.outputs.version }}.zip
+
+    create_attestations:
+        name: Create Attestations
+        needs: [configure, scan, create-gh-release, build, sbom]
+        runs-on: ubuntu-latest
+        permissions:
+            id-token: write
+            attestations: write # Required to publish attestations
+        steps:
+            - name: Create the subject checksum file for provenance
+              shell: pwsh
+              run: |
+                  $cleanedSbomSha = $("${{ needs.sbom.outputs.sbom_hash }}" -replace "sha256:", "").Trim()
+                  $cleanedImageSha = $("${{ needs.build.outputs.app_hash }}" -replace "sha256:", "").Trim()
+
+                  $imageSubject = "${{ env.DOCKER_HUB_REPOSITORY }}:${{ needs.configure.outputs.version }}".Trim()
+                  $sbomSubject = "${{ env.SBOM_PACKAGE }}.${{ needs.configure.outputs.version }}.zip".Trim()
+
+                  Write-Host "The API information is $cleanedImageSha  $imageSubject"
+                  Write-Host "The SBOM information is $cleanedSbomSha  $sbomSubject"
+
+                  $subjectText = @"
+                  $cleanedImageSha  $imageSubject
+                  $cleanedSbomSha  $sbomSubject
+                  "@
+
+                  Write-Host "Creating the checksums file"
+                  New-Item -Path . -Name "subject.checksums.txt" -ItemType "File" -Value $subjectText
+            - name: Generate attestation from provenance
+              uses: actions/attest-build-provenance@v2
+              id: websiteattest
+              with:
+                  subject-checksums: subject.checksums.txt
+
+    octopus-create-release-and-deploy:
+        name: Create Release and Deploy to Development
+        needs:
+            [
+                configure,
+                scan,
+                create-gh-release,
+                build,
+                sbom,
+                create_attestations,
+            ]
+        runs-on: ubuntu-latest
+        permissions:
+            id-token: write
+            contents: read
+        steps:
+            - name: Checkout code
+              uses: actions/checkout@v2
+
+            - name: Login to Octopus Deploy
+              uses: OctopusDeploy/login@v1
+              with:
+                  server: ${{ env.OCTOPUS_URL }}
+                  service_account_id: ${{ env.OCTOPUS_SERVICE_ACCOUNT }}
+
+            - name: Create Octopus Release
+              uses: OctopusDeploy/create-release-action@v3
+              with:
+                  project: "Flight Agent"
+                  space: "${{ env.OCTOPUS_SPACE }}"
+                  release_number: "${{ needs.configure.outputs.version }}"
+                  package_version: "${{ needs.configure.outputs.version }}"
+                  git_ref: ${{ (github.ref_type == 'tag' && github.event.repository.default_branch ) || (github.head_ref || github.ref) }}
+
+            - name: Deploy Release to Development
+              id: deploy_a_release
+              uses: OctopusDeploy/deploy-release-action@v3
+              with:
+                  project: "Flight Agent"
+                  space: "${{ env.OCTOPUS_SPACE }}"
+                  release_number: "${{ needs.configure.outputs.version }}"
+                  environments: "Development"
+
+            - name: Await task in Octopus Deploy 🐙
+              id: await_task_in_octopus_deploy
+              uses: OctopusDeploy/await-task-action@v4
+              with:
+                  server_task_id: ${{ fromJson(steps.deploy_a_release.outputs.server_tasks)[0].serverTaskId }}
